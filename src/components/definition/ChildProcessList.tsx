@@ -97,20 +97,38 @@ export function ChildProcessList({ definition }: ChildProcessListProps) {
   const circularIds = getCircularReferenceIds(definition.id, state.definitions);
 
   // 追加可能なプロセス（ベースプロセス＋全てのカスタムプロセス）
-  // ベースプロセスはform, approval, referenceのみ
+  // ベースプロセスはapproval, referenceのみ（formはフィールドが空なので除外）
   const availableProcesses = state.definitions.filter(
     (def) =>
-      (def.isBase && ['form', 'approval', 'reference'].includes(def.type)) ||
+      (def.isBase && ['approval', 'reference'].includes(def.type)) ||
       !def.isBase
   );
+
+  // フォームタイプでフィールドが空かどうかをチェック
+  const hasNoFields = (def: ProcessDefinition): boolean => {
+    if (def.type === 'form') {
+      return !def.fields || def.fields.length === 0;
+    }
+    return false;
+  };
 
   // ProcessSelector用のオプション
   const selectorOptions = availableProcesses.map((def) => {
     const isCircular = circularIds.has(def.id);
+    const noFields = hasNoFields(def);
+    const isDisabled = isCircular || noFields;
+
+    let disabledReason: string | undefined;
+    if (isCircular) {
+      disabledReason = '循環参照';
+    } else if (noFields) {
+      disabledReason = 'フィールドがありません';
+    }
+
     return {
       definition: def,
-      disabled: isCircular,
-      disabledReason: isCircular ? '循環参照' : undefined,
+      disabled: isDisabled,
+      disabledReason,
     };
   });
 
