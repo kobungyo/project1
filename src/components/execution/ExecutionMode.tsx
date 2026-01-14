@@ -3,8 +3,9 @@ import { LogoutOutlined } from '@ant-design/icons';
 import { useWorkflow } from '../../context/WorkflowContext';
 import { ExecutionTree } from './ExecutionTree';
 import { ExecutionDetail } from './ExecutionDetail';
+import { ResizableLayout } from '../common/ResizableLayout';
 
-const { Header, Sider, Content } = Layout;
+const { Header } = Layout;
 
 export function ExecutionMode() {
   const { setMode } = useWorkflow();
@@ -30,27 +31,14 @@ export function ExecutionMode() {
           終了
         </Button>
       </Header>
-      <Layout>
-        <Sider
-          width={300}
-          style={{
-            backgroundColor: 'white',
-            borderRight: '1px solid #f0f0f0',
-            overflow: 'auto',
-          }}
-        >
-          <ExecutionTree />
-        </Sider>
-        <Content
-          style={{
-            padding: '24px',
-            backgroundColor: '#f5f5f5',
-            overflow: 'auto',
-          }}
-        >
-          <ExecutionDetail />
-        </Content>
-      </Layout>
+      <ResizableLayout
+        siderContent={<ExecutionTree />}
+        mainContent={<ExecutionDetail />}
+        defaultWidth={300}
+        minWidth={200}
+        maxWidth={500}
+        storageKey="execution-sider-width"
+      />
     </Layout>
   );
 }

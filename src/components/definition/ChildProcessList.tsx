@@ -2,7 +2,6 @@ import {
   List,
   Button,
   Modal,
-  Select,
   Input,
   Space,
   Card,
@@ -24,6 +23,7 @@ import {
 } from '@ant-design/icons';
 import { useState } from 'react';
 import { useWorkflow } from '../../context/WorkflowContext';
+import { ProcessSelector } from '../common/ProcessSelector';
 import type { ProcessDefinition, ProcessInstance, ProcessType } from '../../types';
 
 const { Text } = Typography;
@@ -104,9 +104,15 @@ export function ChildProcessList({ definition }: ChildProcessListProps) {
       !def.isBase
   );
 
-  // ベースとカスタムに分ける
-  const baseProcesses = availableProcesses.filter((def) => def.isBase);
-  const customProcesses = availableProcesses.filter((def) => !def.isBase);
+  // ProcessSelector用のオプション
+  const selectorOptions = availableProcesses.map((def) => {
+    const isCircular = circularIds.has(def.id);
+    return {
+      definition: def,
+      disabled: isCircular,
+      disabledReason: isCircular ? '循環参照' : undefined,
+    };
+  });
 
   const handleAdd = () => {
     setSelectedProcessId('');
@@ -174,47 +180,6 @@ export function ChildProcessList({ definition }: ChildProcessListProps) {
       children: newChildren,
     });
   };
-
-  // プロセスタイプの表示名
-  const getTypeSuffix = (type: ProcessType) => {
-    switch (type) {
-      case 'form': return '[フォーム]';
-      case 'approval': return '[承認]';
-      case 'reference': return '[参照]';
-      case 'composite': return '[複合]';
-      default: return '';
-    }
-  };
-
-  // セレクトオプションを作成（説明付き、循環参照はグレイアウト）
-  const selectOptions = [
-    {
-      label: 'ベースプロセス',
-      options: baseProcesses.map((def) => {
-        const isCircular = circularIds.has(def.id);
-        return {
-          value: def.id,
-          label: def.description ? `${def.name} - ${def.description}` : def.name,
-          disabled: isCircular,
-        };
-      }),
-    },
-    {
-      label: 'カスタムプロセス',
-      options: customProcesses.map((def) => {
-        const isCircular = circularIds.has(def.id);
-        const typeSuffix = getTypeSuffix(def.type);
-        const baseLabel = def.description
-          ? `${def.name} ${typeSuffix} - ${def.description}`
-          : `${def.name} ${typeSuffix}`;
-        return {
-          value: def.id,
-          label: isCircular ? `${baseLabel}（循環参照）` : baseLabel,
-          disabled: isCircular,
-        };
-      }),
-    },
-  ];
 
   return (
     <div>
@@ -297,23 +262,24 @@ export function ChildProcessList({ definition }: ChildProcessListProps) {
         onCancel={() => setIsModalOpen(false)}
         okText="追加"
         cancelText="キャンセル"
+        width={520}
       >
         <Space direction="vertical" style={{ width: '100%' }} size="middle">
           <div>
             <Text>プロセス</Text>
-            <Select
-              style={{ width: '100%', marginTop: '8px' }}
-              placeholder="プロセスを選択"
-              value={selectedProcessId || undefined}
-              onChange={(value) => {
-                setSelectedProcessId(value);
-                const selectedDef = getDefinitionById(value);
-                if (selectedDef && !instanceName) {
-                  setInstanceName(selectedDef.name);
-                }
-              }}
-              options={selectOptions}
-            />
+            <div style={{ marginTop: '8px' }}>
+              <ProcessSelector
+                options={selectorOptions}
+                value={selectedProcessId}
+                onChange={(id, def) => {
+                  setSelectedProcessId(id);
+                  if (!instanceName) {
+                    setInstanceName(def.name);
+                  }
+                }}
+                placeholder="プロセスを選択"
+              />
+            </div>
           </div>
           <div>
             <Text>インスタンス名（このプロセス内での表示名）</Text>

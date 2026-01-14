@@ -3,8 +3,9 @@ import { LogoutOutlined } from '@ant-design/icons';
 import { useWorkflow } from '../../context/WorkflowContext';
 import { ProcessTree } from './ProcessTree';
 import { ProcessDetail } from './ProcessDetail';
+import { ResizableLayout } from '../common/ResizableLayout';
 
-const { Header, Sider, Content } = Layout;
+const { Header } = Layout;
 
 export function DefinitionMode() {
   const { setMode } = useWorkflow();
@@ -30,27 +31,14 @@ export function DefinitionMode() {
           終了
         </Button>
       </Header>
-      <Layout>
-        <Sider
-          width={300}
-          style={{
-            backgroundColor: 'white',
-            borderRight: '1px solid #f0f0f0',
-            overflow: 'auto',
-          }}
-        >
-          <ProcessTree />
-        </Sider>
-        <Content
-          style={{
-            padding: '24px',
-            backgroundColor: '#f5f5f5',
-            overflow: 'auto',
-          }}
-        >
-          <ProcessDetail />
-        </Content>
-      </Layout>
+      <ResizableLayout
+        siderContent={<ProcessTree />}
+        mainContent={<ProcessDetail />}
+        defaultWidth={300}
+        minWidth={200}
+        maxWidth={500}
+        storageKey="definition-sider-width"
+      />
     </Layout>
   );
 }

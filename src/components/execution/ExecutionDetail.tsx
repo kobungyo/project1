@@ -1,4 +1,4 @@
-import { Card, Empty, Steps, Typography, Result } from 'antd';
+import { Card, Empty, Steps, Typography, Result, Divider } from 'antd';
 import { useMemo } from 'react';
 import { useWorkflow } from '../../context/WorkflowContext';
 import { FormStep } from './FormStep';
@@ -8,45 +8,120 @@ import type { ProcessInstance, ProcessDefinition } from '../../types';
 
 const { Title, Text } = Typography;
 
-// 展開されたステップの型
+// 展開されたステップの型（実行可能なステップのみ）
 interface FlattenedStep {
   instance: ProcessInstance;
   definition: ProcessDefinition;
-  path: string[]; // パンくずリスト用
+  path: string[]; // パンくずリスト用（名前の配列）
+  hierarchyPath: HierarchyPathItem[]; // 階層パス（各レベルでのインデックス情報付き）
+}
+
+// 階層パスの各要素
+interface HierarchyPathItem {
+  instance: ProcessInstance;
+  definition: ProcessDefinition;
+  indexInParent: number; // 親内でのインデックス
+  siblings: SiblingInfo[]; // 同階層の兄弟情報
+}
+
+// 兄弟ノードの情報
+interface SiblingInfo {
+  instance: ProcessInstance;
+  definition: ProcessDefinition;
+  indexInParent: number;
+  flatStartIndex: number; // flatSteps内の開始インデックス
+  flatEndIndex: number; // flatSteps内の終了インデックス
 }
 
 export function ExecutionDetail() {
   const { state, getDefinitionById, getExecutionById, updateExecution } = useWorkflow();
 
-  // 入れ子のプロセスを再帰的に展開する関数
-  const flattenSteps = useMemo(() => {
-    return (
-      children: ProcessInstance[],
-      path: string[] = []
-    ): FlattenedStep[] => {
-      const result: FlattenedStep[] = [];
-
+  // 再帰的にステップを展開し、階層情報を付与する
+  const flattenWithHierarchy = useMemo(() => {
+    // まずフラット化して各ステップのflatIndex範囲を計算
+    const countFlatSteps = (children: ProcessInstance[]): number => {
+      let count = 0;
       for (const child of children) {
         const childDef = getDefinitionById(child.definitionId);
         if (!childDef) continue;
+        if (childDef.type === 'composite' && childDef.children && childDef.children.length > 0) {
+          count += countFlatSteps(childDef.children);
+        } else {
+          count += 1;
+        }
+      }
+      return count;
+    };
 
-        const currentPath = [...path, child.name];
+    const flatten = (
+      children: ProcessInstance[],
+      parentPath: string[],
+      parentHierarchyPath: HierarchyPathItem[],
+      flatIndexOffset: number
+    ): FlattenedStep[] => {
+      const result: FlattenedStep[] = [];
+
+      // まず兄弟情報を構築
+      const siblings: SiblingInfo[] = [];
+      let currentFlatIndex = flatIndexOffset;
+      for (let i = 0; i < children.length; i++) {
+        const child = children[i];
+        const childDef = getDefinitionById(child.definitionId);
+        if (!childDef) continue;
+
+        const stepCount = childDef.type === 'composite' && childDef.children
+          ? countFlatSteps(childDef.children)
+          : 1;
+
+        siblings.push({
+          instance: child,
+          definition: childDef,
+          indexInParent: i,
+          flatStartIndex: currentFlatIndex,
+          flatEndIndex: currentFlatIndex + stepCount,
+        });
+        currentFlatIndex += stepCount;
+      }
+
+      // 各子要素を処理
+      for (let i = 0; i < children.length; i++) {
+        const child = children[i];
+        const childDef = getDefinitionById(child.definitionId);
+        if (!childDef) continue;
+
+        const siblingInfo = siblings[i];
+        const currentPath = [...parentPath, child.name];
+        const currentHierarchyItem: HierarchyPathItem = {
+          instance: child,
+          definition: childDef,
+          indexInParent: i,
+          siblings,
+        };
+        const currentHierarchyPath = [...parentHierarchyPath, currentHierarchyItem];
 
         if (childDef.type === 'composite' && childDef.children && childDef.children.length > 0) {
-          // 複合プロセスの場合は再帰的に展開
-          result.push(...flattenSteps(childDef.children, currentPath));
+          // 複合プロセスの場合は再帰
+          result.push(...flatten(
+            childDef.children,
+            currentPath,
+            currentHierarchyPath,
+            siblingInfo.flatStartIndex
+          ));
         } else {
-          // 実行可能なステップ（form, approval, reference）
+          // 実行可能なステップ
           result.push({
             instance: child,
             definition: childDef,
             path: currentPath,
+            hierarchyPath: currentHierarchyPath,
           });
         }
       }
 
       return result;
     };
+
+    return (children: ProcessInstance[]) => flatten(children, [], [], 0);
   }, [getDefinitionById]);
 
   if (!state.selectedExecutionId) {
@@ -78,7 +153,7 @@ export function ExecutionDetail() {
   }
 
   // 入れ子を展開したフラットなステップリスト
-  const flatSteps = flattenSteps(definition.children);
+  const flatSteps = flattenWithHierarchy(definition.children);
 
   if (flatSteps.length === 0) {
     return (
@@ -148,28 +223,67 @@ export function ExecutionDetail() {
     );
   }
 
-  // ステップ表示（展開されたステップを使用）
-  const stepsItems = flatSteps.map((step, index) => {
-    let status: 'wait' | 'process' | 'finish' | 'error' = 'wait';
+  // 階層ごとのステップ表示データを生成
+  const generateHierarchySteps = () => {
+    if (!currentStep) return [];
 
-    if (index < execution.currentStepIndex) {
-      status = 'finish';
-    } else if (index === execution.currentStepIndex) {
-      status = 'process';
+    const hierarchyPath = currentStep.hierarchyPath;
+    const rows: Array<{
+      label: string;
+      items: Array<{
+        title: string;
+        description: string;
+        status: 'wait' | 'process' | 'finish' | 'error';
+      }>;
+      currentIndex: number;
+    }> = [];
+
+    for (let level = 0; level < hierarchyPath.length; level++) {
+      const pathItem = hierarchyPath[level];
+      const siblings = pathItem.siblings;
+
+      const items = siblings.map((sibling) => {
+        let status: 'wait' | 'process' | 'finish' | 'error' = 'wait';
+
+        // このsiblingの全ステップが完了しているか？
+        if (sibling.flatEndIndex <= execution.currentStepIndex) {
+          status = 'finish';
+        } else if (
+          execution.currentStepIndex >= sibling.flatStartIndex &&
+          execution.currentStepIndex < sibling.flatEndIndex
+        ) {
+          status = 'process';
+        }
+
+        const typeLabel = sibling.definition.type === 'composite' ? '複合' :
+                          sibling.definition.type === 'form' ? 'フォーム' :
+                          sibling.definition.type === 'approval' ? '承認' :
+                          sibling.definition.type === 'reference' ? '参照' : '';
+
+        return {
+          title: sibling.instance.name,
+          description: typeLabel,
+          status,
+        };
+      });
+
+      // このレベルでのカレントインデックス
+      const currentIndexAtLevel = pathItem.indexInParent;
+
+      // ラベル（親の名前、最初のレベルは"全体"）
+      const label = level === 0 ? '全体の進行' : `${hierarchyPath[level - 1].instance.name} 内`;
+
+      rows.push({
+        label,
+        items,
+        currentIndex: currentIndexAtLevel,
+      });
     }
 
-    const typeLabel = step.definition.type === 'form' ? 'フォーム入力' :
-                      step.definition.type === 'approval' ? '承認/確認' :
-                      step.definition.type === 'reference' ? '情報参照' : '';
+    return rows;
+  };
 
-    return {
-      title: step.path.length > 1 ? step.path[step.path.length - 1] : step.instance.name,
-      description: step.path.length > 1
-        ? `${step.path.slice(0, -1).join(' > ')} | ${typeLabel}`
-        : typeLabel,
-      status,
-    };
-  });
+  const hierarchyRows = generateHierarchySteps();
 
   // 現在のステップに応じたコンポーネント
   const renderCurrentStep = () => {
@@ -231,7 +345,7 @@ export function ExecutionDetail() {
               });
             }}
             onReject={() => {
-              // 差し戻し：前のフォーム入力ステップに戻る（展開されたステップから検索）
+              // 差し戻し：前のフォーム入力ステップに戻る
               let prevFormIndex = execution.currentStepIndex - 1;
               while (prevFormIndex >= 0) {
                 const prevStep = flatSteps[prevFormIndex];
@@ -303,11 +417,19 @@ export function ExecutionDetail() {
       <Text type="secondary">{definition.name}</Text>
 
       <div style={{ margin: '24px 0' }}>
-        <Steps
-          current={execution.currentStepIndex}
-          items={stepsItems}
-          size="small"
-        />
+        {hierarchyRows.map((row, rowIndex) => (
+          <div key={rowIndex}>
+            {rowIndex > 0 && <Divider style={{ margin: '12px 0' }} />}
+            <Text type="secondary" style={{ fontSize: '12px', display: 'block', marginBottom: '8px' }}>
+              {row.label}
+            </Text>
+            <Steps
+              current={row.currentIndex}
+              items={row.items}
+              size="small"
+            />
+          </div>
+        ))}
       </div>
 
       <Card style={{ marginTop: '24px' }}>

@@ -1,7 +1,8 @@
-import { Tree, Button, Modal, Select, Input, Space, message, Tag, Typography } from 'antd';
+import { Tree, Button, Modal, Input, Space, message, Tag, Typography } from 'antd';
 import { PlusOutlined, PlayCircleOutlined, CheckCircleOutlined, ClockCircleOutlined } from '@ant-design/icons';
 import { useState } from 'react';
 import { useWorkflow } from '../../context/WorkflowContext';
+import { ProcessSelector } from '../common/ProcessSelector';
 import type { ProcessExecution, ExecutionStatus } from '../../types';
 import type { DataNode } from 'antd/es/tree';
 import type React from 'react';
@@ -35,6 +36,11 @@ export function ExecutionTree() {
   const availableProcesses = state.definitions.filter(
     (def) => def.type === 'composite' && !def.isBase && (def.children?.length || 0) > 0
   );
+
+  // ProcessSelector用のオプション
+  const selectorOptions = availableProcesses.map((def) => ({
+    definition: def,
+  }));
 
   // ツリーデータに変換
   const treeData: DataNode[] = [
@@ -138,22 +144,24 @@ export function ExecutionTree() {
         }}
         okText="開始"
         cancelText="キャンセル"
+        width={520}
       >
         <Space direction="vertical" style={{ width: '100%' }} size="middle">
           <div>
             <Text>プロセス定義</Text>
-            <Select
-              style={{ width: '100%', marginTop: '8px' }}
-              placeholder="プロセスを選択"
-              value={selectedDefinitionId || undefined}
-              onChange={setSelectedDefinitionId}
-              options={availableProcesses.map((def) => ({
-                value: def.id,
-                label: def.description
-                  ? `${def.name} - ${def.description} (${def.children?.length || 0} ステップ)`
-                  : `${def.name} (${def.children?.length || 0} ステップ)`,
-              }))}
-            />
+            <div style={{ marginTop: '8px' }}>
+              <ProcessSelector
+                options={selectorOptions}
+                value={selectedDefinitionId}
+                onChange={(id, def) => {
+                  setSelectedDefinitionId(id);
+                  if (!instanceName) {
+                    setInstanceName(def.name);
+                  }
+                }}
+                placeholder="プロセスを選択"
+              />
+            </div>
           </div>
           <div>
             <Text>インスタンス名</Text>
