@@ -7,7 +7,7 @@ import {
   FolderOutlined,
   CopyOutlined,
 } from '@ant-design/icons';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useWorkflow } from '../../context/WorkflowContext';
 import type { ProcessDefinition, ProcessType } from '../../types';
 import type { DataNode } from 'antd/es/tree';
@@ -69,8 +69,25 @@ export function ProcessTree() {
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isDeriveModalOpen, setIsDeriveModalOpen] = useState(false);
   const [newProcessName, setNewProcessName] = useState('');
+  const [expandedKeys, setExpandedKeys] = useState<React.Key[]>(['base-folder', 'custom-folder']);
 
   const treeData = convertToTreeData(state.definitions);
+
+  // 選択されたノードが表示されるようにツリーを展開
+  useEffect(() => {
+    if (state.selectedDefinitionId) {
+      const selectedDef = getDefinitionById(state.selectedDefinitionId);
+      if (selectedDef && !selectedDef.isBase) {
+        // カスタムプロセスが選択された場合、custom-folderを展開
+        setExpandedKeys((prev) => {
+          if (!prev.includes('custom-folder')) {
+            return [...prev, 'custom-folder'];
+          }
+          return prev;
+        });
+      }
+    }
+  }, [state.selectedDefinitionId, getDefinitionById]);
 
   // 選択中のプロセス定義
   const selectedDefinition = state.selectedDefinitionId
@@ -175,7 +192,8 @@ export function ProcessTree() {
 
       <Tree
         showIcon
-        defaultExpandAll
+        expandedKeys={expandedKeys}
+        onExpand={(keys) => setExpandedKeys(keys)}
         treeData={treeData}
         selectedKeys={state.selectedDefinitionId ? [state.selectedDefinitionId] : []}
         onSelect={handleSelect}

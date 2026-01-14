@@ -1,4 +1,4 @@
-import { Card, Empty, Steps, Typography, Result, Button } from 'antd';
+import { Card, Empty, Steps, Typography, Result } from 'antd';
 import { useWorkflow } from '../../context/WorkflowContext';
 import { FormStep } from './FormStep';
 import { ApprovalStep } from './ApprovalStep';
@@ -7,7 +7,7 @@ import { ReferenceStep } from './ReferenceStep';
 const { Title, Text } = Typography;
 
 export function ExecutionDetail() {
-  const { state, getDefinitionById, getExecutionById, updateExecution, deleteExecution, selectExecution } = useWorkflow();
+  const { state, getDefinitionById, getExecutionById, updateExecution } = useWorkflow();
 
   if (!state.selectedExecutionId) {
     return (
@@ -49,18 +49,22 @@ export function ExecutionDetail() {
           status="success"
           title="プロセス完了"
           subTitle={`${execution.instanceName} は正常に完了しました`}
-          extra={[
-            <Button
-              key="close"
-              onClick={() => {
-                deleteExecution(execution.id);
-                selectExecution(null);
-              }}
-            >
-              閉じる
-            </Button>,
-          ]}
         />
+        <Card style={{ marginTop: '16px' }}>
+          <Title level={5}>入力データ</Title>
+          {Object.keys(execution.data).length === 0 ? (
+            <Text type="secondary">データがありません</Text>
+          ) : (
+            <div>
+              {Object.entries(execution.data).map(([key, value]) => (
+                <div key={key} style={{ marginBottom: '8px' }}>
+                  <Text strong>{key}: </Text>
+                  <Text>{String(value)}</Text>
+                </div>
+              ))}
+            </div>
+          )}
+        </Card>
       </Card>
     );
   }
@@ -73,18 +77,22 @@ export function ExecutionDetail() {
           status="error"
           title="プロセス却下"
           subTitle={`${execution.instanceName} は却下されました`}
-          extra={[
-            <Button
-              key="close"
-              onClick={() => {
-                deleteExecution(execution.id);
-                selectExecution(null);
-              }}
-            >
-              閉じる
-            </Button>,
-          ]}
         />
+        <Card style={{ marginTop: '16px' }}>
+          <Title level={5}>入力データ</Title>
+          {Object.keys(execution.data).length === 0 ? (
+            <Text type="secondary">データがありません</Text>
+          ) : (
+            <div>
+              {Object.entries(execution.data).map(([key, value]) => (
+                <div key={key} style={{ marginBottom: '8px' }}>
+                  <Text strong>{key}: </Text>
+                  <Text>{String(value)}</Text>
+                </div>
+              ))}
+            </div>
+          )}
+        </Card>
       </Card>
     );
   }
