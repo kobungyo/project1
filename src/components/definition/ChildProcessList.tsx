@@ -20,6 +20,7 @@ import {
   FormOutlined,
   CheckCircleOutlined,
   FileTextOutlined,
+  FolderOutlined,
 } from '@ant-design/icons';
 import { useState } from 'react';
 import { useWorkflow } from '../../context/WorkflowContext';
@@ -40,9 +41,48 @@ function getProcessIcon(type: ProcessType) {
       return <CheckCircleOutlined style={{ color: '#52c41a' }} />;
     case 'reference':
       return <FileTextOutlined style={{ color: '#faad14' }} />;
+    case 'composite':
+      return <FolderOutlined style={{ color: '#722ed1' }} />;
     default:
       return <FormOutlined />;
   }
+}
+
+// targetIdがprocessIdの子孫かどうかをチェック（循環参照検出用）
+function isDescendant(
+  processId: string,
+  targetId: string,
+  definitions: ProcessDefinition[]
+): boolean {
+  const process = definitions.find((d) => d.id === processId);
+  if (!process || !process.children) return false;
+
+  for (const child of process.children) {
+    if (child.definitionId === targetId) return true;
+    if (isDescendant(child.definitionId, targetId, definitions)) return true;
+  }
+
+  return false;
+}
+
+// 循環参照を引き起こすプロセスIDのセットを取得
+function getCircularReferenceIds(
+  definitionId: string,
+  definitions: ProcessDefinition[]
+): Set<string> {
+  const circularIds = new Set<string>();
+
+  // 自己参照
+  circularIds.add(definitionId);
+
+  // このdefinitionを子孫として持つプロセスは追加不可
+  for (const def of definitions) {
+    if (isDescendant(def.id, definitionId, definitions)) {
+      circularIds.add(def.id);
+    }
+  }
+
+  return circularIds;
 }
 
 export function ChildProcessList({ definition }: ChildProcessListProps) {
@@ -53,12 +93,15 @@ export function ChildProcessList({ definition }: ChildProcessListProps) {
 
   const children = definition.children || [];
 
-  // 追加可能なプロセス（ベースプロセス＋カスタムプロセスのform, approval, reference）
-  // 自分自身は除外
+  // 循環参照になるプロセスIDを取得
+  const circularIds = getCircularReferenceIds(definition.id, state.definitions);
+
+  // 追加可能なプロセス（ベースプロセス＋全てのカスタムプロセス）
+  // ベースプロセスはform, approval, referenceのみ
   const availableProcesses = state.definitions.filter(
     (def) =>
-      def.id !== definition.id &&
-      ['form', 'approval', 'reference'].includes(def.type)
+      (def.isBase && ['form', 'approval', 'reference'].includes(def.type)) ||
+      !def.isBase
   );
 
   // ベースとカスタムに分ける
@@ -132,21 +175,44 @@ export function ChildProcessList({ definition }: ChildProcessListProps) {
     });
   };
 
-  // セレクトオプションを作成
+  // プロセスタイプの表示名
+  const getTypeSuffix = (type: ProcessType) => {
+    switch (type) {
+      case 'form': return '[フォーム]';
+      case 'approval': return '[承認]';
+      case 'reference': return '[参照]';
+      case 'composite': return '[複合]';
+      default: return '';
+    }
+  };
+
+  // セレクトオプションを作成（説明付き、循環参照はグレイアウト）
   const selectOptions = [
     {
       label: 'ベースプロセス',
-      options: baseProcesses.map((def) => ({
-        value: def.id,
-        label: def.name,
-      })),
+      options: baseProcesses.map((def) => {
+        const isCircular = circularIds.has(def.id);
+        return {
+          value: def.id,
+          label: def.description ? `${def.name} - ${def.description}` : def.name,
+          disabled: isCircular,
+        };
+      }),
     },
     {
       label: 'カスタムプロセス',
-      options: customProcesses.map((def) => ({
-        value: def.id,
-        label: `${def.name}`,
-      })),
+      options: customProcesses.map((def) => {
+        const isCircular = circularIds.has(def.id);
+        const typeSuffix = getTypeSuffix(def.type);
+        const baseLabel = def.description
+          ? `${def.name} ${typeSuffix} - ${def.description}`
+          : `${def.name} ${typeSuffix}`;
+        return {
+          value: def.id,
+          label: isCircular ? `${baseLabel}（循環参照）` : baseLabel,
+          disabled: isCircular,
+        };
+      }),
     },
   ];
 
@@ -184,6 +250,8 @@ export function ChildProcessList({ definition }: ChildProcessListProps) {
                     <Text>{child.name}</Text>
                     {childDef?.isBase ? (
                       <Tag color="blue" style={{ fontSize: '10px' }}>ベース</Tag>
+                    ) : childDef?.type === 'composite' ? (
+                      <Tag color="purple" style={{ fontSize: '10px' }}>複合</Tag>
                     ) : (
                       <Tag color="green" style={{ fontSize: '10px' }}>カスタム</Tag>
                     )}

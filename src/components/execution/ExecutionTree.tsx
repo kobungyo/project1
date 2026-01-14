@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useWorkflow } from '../../context/WorkflowContext';
 import type { ProcessExecution, ExecutionStatus } from '../../types';
 import type { DataNode } from 'antd/es/tree';
+import type React from 'react';
 
 const { Text } = Typography;
 
@@ -28,6 +29,7 @@ export function ExecutionTree() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedDefinitionId, setSelectedDefinitionId] = useState<string>('');
   const [instanceName, setInstanceName] = useState('');
+  const [expandedKeys, setExpandedKeys] = useState<React.Key[]>(['workspace']);
 
   // 実行可能な複合プロセスのみ
   const availableProcesses = state.definitions.filter(
@@ -118,7 +120,8 @@ export function ExecutionTree() {
 
       <Tree
         showIcon
-        defaultExpandAll
+        expandedKeys={expandedKeys}
+        onExpand={(keys) => setExpandedKeys(keys)}
         treeData={treeData}
         selectedKeys={state.selectedExecutionId ? [state.selectedExecutionId] : []}
         onSelect={handleSelect}
@@ -146,7 +149,9 @@ export function ExecutionTree() {
               onChange={setSelectedDefinitionId}
               options={availableProcesses.map((def) => ({
                 value: def.id,
-                label: `${def.name} (${def.children?.length || 0} ステップ)`,
+                label: def.description
+                  ? `${def.name} - ${def.description} (${def.children?.length || 0} ステップ)`
+                  : `${def.name} (${def.children?.length || 0} ステップ)`,
               }))}
             />
           </div>

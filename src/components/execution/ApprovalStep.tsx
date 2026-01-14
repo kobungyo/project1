@@ -1,6 +1,6 @@
 import { Descriptions, Button, Space, Typography, Popconfirm, Empty, Alert } from 'antd';
 import { CheckOutlined, CloseOutlined } from '@ant-design/icons';
-import type { ProcessExecution, FormField } from '../../types';
+import type { ProcessExecution, FormField, ProcessInstance, ProcessDefinition } from '../../types';
 import { useWorkflow } from '../../context/WorkflowContext';
 
 const { Title } = Typography;
@@ -11,26 +11,26 @@ interface ApprovalStepProps {
   onReject: () => void;
 }
 
-export function ApprovalStep({ execution, onApprove, onReject }: ApprovalStepProps) {
-  const { getDefinitionById } = useWorkflow();
-
-  // 入力されたデータを表示
-  const data = execution.data;
-  const dataEntries = Object.entries(data);
-
-  // 全ての子プロセスからフィールド定義を収集
-  const definition = getDefinitionById(execution.definitionId);
-  const children = definition?.children || [];
-
-  // フィールド名からフィールド情報を取得するマップ
-  const fieldMap: Record<string, FormField> = {};
+// 再帰的にフィールドを収集する関数
+function collectFieldsRecursively(
+  children: ProcessInstance[],
+  getDefinitionById: (id: string) => ProcessDefinition | undefined,
+  fieldMap: Record<string, FormField>
+): void {
   children.forEach((child) => {
     const childDef = getDefinitionById(child.definitionId);
-    if (childDef?.fields) {
+    if (!childDef) return;
+
+    // 複合プロセスの場合は再帰的に処理
+    if (childDef.type === 'composite' && childDef.children) {
+      collectFieldsRecursively(childDef.children, getDefinitionById, fieldMap);
+    } else if (childDef.fields) {
+      // フォームプロセスの場合はフィールドを収集
       childDef.fields.forEach((field) => {
         fieldMap[field.name] = field;
       });
     }
+
     // オーバーライドのフィールドも確認
     if (child.overrides?.fields) {
       child.overrides.fields.forEach((field) => {
@@ -38,6 +38,22 @@ export function ApprovalStep({ execution, onApprove, onReject }: ApprovalStepPro
       });
     }
   });
+}
+
+export function ApprovalStep({ execution, onApprove, onReject }: ApprovalStepProps) {
+  const { getDefinitionById } = useWorkflow();
+
+  // 入力されたデータを表示
+  const data = execution.data;
+  const dataEntries = Object.entries(data);
+
+  // 全ての子プロセスからフィールド定義を収集（入れ子対応）
+  const definition = getDefinitionById(execution.definitionId);
+  const children = definition?.children || [];
+
+  // フィールド名からフィールド情報を取得するマップ
+  const fieldMap: Record<string, FormField> = {};
+  collectFieldsRecursively(children, getDefinitionById, fieldMap);
 
   const formatValue = (value: unknown, field?: FormField): string => {
     if (value === null || value === undefined) {

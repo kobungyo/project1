@@ -1,13 +1,53 @@
 import { Card, Empty, Steps, Typography, Result } from 'antd';
+import { useMemo } from 'react';
 import { useWorkflow } from '../../context/WorkflowContext';
 import { FormStep } from './FormStep';
 import { ApprovalStep } from './ApprovalStep';
 import { ReferenceStep } from './ReferenceStep';
+import type { ProcessInstance, ProcessDefinition } from '../../types';
 
 const { Title, Text } = Typography;
 
+// 展開されたステップの型
+interface FlattenedStep {
+  instance: ProcessInstance;
+  definition: ProcessDefinition;
+  path: string[]; // パンくずリスト用
+}
+
 export function ExecutionDetail() {
   const { state, getDefinitionById, getExecutionById, updateExecution } = useWorkflow();
+
+  // 入れ子のプロセスを再帰的に展開する関数
+  const flattenSteps = useMemo(() => {
+    return (
+      children: ProcessInstance[],
+      path: string[] = []
+    ): FlattenedStep[] => {
+      const result: FlattenedStep[] = [];
+
+      for (const child of children) {
+        const childDef = getDefinitionById(child.definitionId);
+        if (!childDef) continue;
+
+        const currentPath = [...path, child.name];
+
+        if (childDef.type === 'composite' && childDef.children && childDef.children.length > 0) {
+          // 複合プロセスの場合は再帰的に展開
+          result.push(...flattenSteps(childDef.children, currentPath));
+        } else {
+          // 実行可能なステップ（form, approval, reference）
+          result.push({
+            instance: child,
+            definition: childDef,
+            path: currentPath,
+          });
+        }
+      }
+
+      return result;
+    };
+  }, [getDefinitionById]);
 
   if (!state.selectedExecutionId) {
     return (
@@ -37,9 +77,20 @@ export function ExecutionDetail() {
     );
   }
 
-  const children = definition.children;
-  const currentStep = children[execution.currentStepIndex];
-  const currentStepDef = currentStep ? getDefinitionById(currentStep.definitionId) : null;
+  // 入れ子を展開したフラットなステップリスト
+  const flatSteps = flattenSteps(definition.children);
+
+  if (flatSteps.length === 0) {
+    return (
+      <Card>
+        <Empty description="実行可能なステップがありません" />
+      </Card>
+    );
+  }
+
+  const currentStep = flatSteps[execution.currentStepIndex];
+  const currentStepInstance = currentStep?.instance;
+  const currentStepDef = currentStep?.definition;
 
   // 完了した場合
   if (execution.status === 'completed') {
@@ -97,9 +148,8 @@ export function ExecutionDetail() {
     );
   }
 
-  // ステップ表示
-  const stepsItems = children.map((child, index) => {
-    const childDef = getDefinitionById(child.definitionId);
+  // ステップ表示（展開されたステップを使用）
+  const stepsItems = flatSteps.map((step, index) => {
     let status: 'wait' | 'process' | 'finish' | 'error' = 'wait';
 
     if (index < execution.currentStepIndex) {
@@ -108,18 +158,22 @@ export function ExecutionDetail() {
       status = 'process';
     }
 
+    const typeLabel = step.definition.type === 'form' ? 'フォーム入力' :
+                      step.definition.type === 'approval' ? '承認/確認' :
+                      step.definition.type === 'reference' ? '情報参照' : '';
+
     return {
-      title: child.name,
-      description: childDef?.type === 'form' ? 'フォーム入力' :
-                   childDef?.type === 'approval' ? '承認/確認' :
-                   childDef?.type === 'reference' ? '情報参照' : '',
+      title: step.path.length > 1 ? step.path[step.path.length - 1] : step.instance.name,
+      description: step.path.length > 1
+        ? `${step.path.slice(0, -1).join(' > ')} | ${typeLabel}`
+        : typeLabel,
       status,
     };
   });
 
   // 現在のステップに応じたコンポーネント
   const renderCurrentStep = () => {
-    if (!currentStep || !currentStepDef) {
+    if (!currentStep || !currentStepDef || !currentStepInstance) {
       return <Empty description="ステップが見つかりません" />;
     }
 
@@ -128,12 +182,12 @@ export function ExecutionDetail() {
         return (
           <FormStep
             execution={execution}
-            stepInstance={currentStep}
+            stepInstance={currentStepInstance}
             stepDefinition={currentStepDef}
             onSubmit={(data) => {
               const newData = { ...execution.data, ...data };
               const nextIndex = execution.currentStepIndex + 1;
-              const isCompleted = nextIndex >= children.length;
+              const isCompleted = nextIndex >= flatSteps.length;
 
               updateExecution({
                 ...execution,
@@ -160,7 +214,7 @@ export function ExecutionDetail() {
             execution={execution}
             onApprove={() => {
               const nextIndex = execution.currentStepIndex + 1;
-              const isCompleted = nextIndex >= children.length;
+              const isCompleted = nextIndex >= flatSteps.length;
 
               updateExecution({
                 ...execution,
@@ -177,12 +231,11 @@ export function ExecutionDetail() {
               });
             }}
             onReject={() => {
-              // 差し戻し：前のフォーム入力ステップに戻る
+              // 差し戻し：前のフォーム入力ステップに戻る（展開されたステップから検索）
               let prevFormIndex = execution.currentStepIndex - 1;
               while (prevFormIndex >= 0) {
-                const prevStep = children[prevFormIndex];
-                const prevDef = getDefinitionById(prevStep.definitionId);
-                if (prevDef?.type === 'form') {
+                const prevStep = flatSteps[prevFormIndex];
+                if (prevStep.definition.type === 'form') {
                   break;
                 }
                 prevFormIndex--;
@@ -213,9 +266,13 @@ export function ExecutionDetail() {
           <ReferenceStep
             execution={execution}
             onComplete={() => {
+              const nextIndex = execution.currentStepIndex + 1;
+              const isCompleted = nextIndex >= flatSteps.length;
+
               updateExecution({
                 ...execution,
-                status: 'completed',
+                currentStepIndex: isCompleted ? execution.currentStepIndex : nextIndex,
+                status: isCompleted ? 'completed' : 'in_progress',
                 history: [
                   ...execution.history,
                   {

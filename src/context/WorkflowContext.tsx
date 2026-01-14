@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useReducer, type ReactNode } from 'react';
+import React, { createContext, useContext, useReducer, useEffect, type ReactNode } from 'react';
 import type {
   AppState,
   AppAction,
@@ -6,6 +6,8 @@ import type {
   ProcessDefinition,
   ProcessExecution,
 } from '../types';
+
+const STORAGE_KEY = 'workflow-app-state';
 
 // ベースプロセス定義（初期データ）
 const baseDefinitions: ProcessDefinition[] = [
@@ -33,8 +35,46 @@ const baseDefinitions: ProcessDefinition[] = [
   },
 ];
 
+// ローカルストレージから状態を読み込む
+function loadStateFromStorage(): AppState | null {
+  try {
+    const saved = localStorage.getItem(STORAGE_KEY);
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      // ベースプロセスは常に最新の定義を使用
+      const customDefinitions = parsed.definitions?.filter(
+        (def: ProcessDefinition) => !def.isBase
+      ) || [];
+      return {
+        ...parsed,
+        mode: 'home', // 起動時は常にホーム
+        definitions: [...baseDefinitions, ...customDefinitions],
+        selectedDefinitionId: null,
+        selectedExecutionId: null,
+      };
+    }
+  } catch (e) {
+    console.error('Failed to load state from localStorage:', e);
+  }
+  return null;
+}
+
+// 状態をローカルストレージに保存
+function saveStateToStorage(state: AppState) {
+  try {
+    // 保存用にシンプルな形式に変換
+    const toSave = {
+      definitions: state.definitions,
+      executions: state.executions,
+    };
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(toSave));
+  } catch (e) {
+    console.error('Failed to save state to localStorage:', e);
+  }
+}
+
 // 初期状態
-const initialState: AppState = {
+const initialState: AppState = loadStateFromStorage() || {
   mode: 'home',
   definitions: [...baseDefinitions],
   executions: [],
@@ -113,6 +153,20 @@ function appReducer(state: AppState, action: AppAction): AppState {
             : state.selectedExecutionId,
       };
 
+    case 'CLEAR_ALL_EXECUTIONS':
+      return {
+        ...state,
+        executions: [],
+        selectedExecutionId: null,
+      };
+
+    case 'CLEAR_ALL_CUSTOM_DEFINITIONS':
+      return {
+        ...state,
+        definitions: state.definitions.filter((def) => def.isBase),
+        selectedDefinitionId: null,
+      };
+
     default:
       return state;
   }
@@ -132,6 +186,8 @@ interface WorkflowContextType {
   addExecution: (execution: ProcessExecution) => void;
   updateExecution: (execution: ProcessExecution) => void;
   deleteExecution: (id: string) => void;
+  clearAllExecutions: () => void;
+  clearAllCustomDefinitions: () => void;
   getDefinitionById: (id: string) => ProcessDefinition | undefined;
   getExecutionById: (id: string) => ProcessExecution | undefined;
 }
@@ -142,6 +198,11 @@ const WorkflowContext = createContext<WorkflowContextType | undefined>(undefined
 // Provider
 export function WorkflowProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(appReducer, initialState);
+
+  // 状態が変更されたらローカルストレージに保存
+  useEffect(() => {
+    saveStateToStorage(state);
+  }, [state.definitions, state.executions]);
 
   const value: WorkflowContextType = {
     state,
@@ -159,6 +220,8 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
     updateExecution: (execution) =>
       dispatch({ type: 'UPDATE_EXECUTION', payload: execution }),
     deleteExecution: (id) => dispatch({ type: 'DELETE_EXECUTION', payload: id }),
+    clearAllExecutions: () => dispatch({ type: 'CLEAR_ALL_EXECUTIONS' }),
+    clearAllCustomDefinitions: () => dispatch({ type: 'CLEAR_ALL_CUSTOM_DEFINITIONS' }),
     getDefinitionById: (id) => state.definitions.find((def) => def.id === id),
     getExecutionById: (id) => state.executions.find((exec) => exec.id === id),
   };

@@ -1,4 +1,4 @@
-import { Tree, Button, Space, Modal, Input, message } from 'antd';
+import { Tree, Button, Space, Modal, Input, message, Tooltip } from 'antd';
 import {
   PlusOutlined,
   FormOutlined,
@@ -33,13 +33,24 @@ function convertToTreeData(definitions: ProcessDefinition[]): DataNode[] {
   const baseProcesses = definitions.filter((def) => def.isBase);
   const customProcesses = definitions.filter((def) => !def.isBase);
 
+  const renderTitle = (name: string, description?: string) => {
+    if (description) {
+      return (
+        <Tooltip title={description} placement="right">
+          <span>{name}</span>
+        </Tooltip>
+      );
+    }
+    return name;
+  };
+
   return [
     {
       title: 'ベースプロセス',
       key: 'base-folder',
       selectable: false,
       children: baseProcesses.map((def) => ({
-        title: def.name,
+        title: renderTitle(def.name, def.description),
         key: def.id,
         icon: getProcessIcon(def.type),
       })),
@@ -49,16 +60,17 @@ function convertToTreeData(definitions: ProcessDefinition[]): DataNode[] {
       key: 'custom-folder',
       selectable: false,
       children: customProcesses.map((def) => ({
-        title: def.name,
+        title: renderTitle(def.name, def.description),
         key: def.id,
         icon: getProcessIcon(def.type),
-        children: def.children?.map((child, index) => ({
-          title: child.name,
-          key: `${def.id}-child-${index}`,
-          icon: getProcessIcon(
-            definitions.find((d) => d.id === child.definitionId)?.type || 'form'
-          ),
-        })),
+        children: def.children?.map((child, index) => {
+          const childDef = definitions.find((d) => d.id === child.definitionId);
+          return {
+            title: renderTitle(child.name, childDef?.description),
+            key: `${def.id}-child-${index}`,
+            icon: getProcessIcon(childDef?.type || 'form'),
+          };
+        }),
       })),
     },
   ];

@@ -86,4 +86,6 @@ export type AppAction =
   | { type: 'DELETE_DEFINITION'; payload: string }
   | { type: 'ADD_EXECUTION'; payload: ProcessExecution }
   | { type: 'UPDATE_EXECUTION'; payload: ProcessExecution }
-  | { type: 'DELETE_EXECUTION'; payload: string };
+  | { type: 'DELETE_EXECUTION'; payload: string }
+  | { type: 'CLEAR_ALL_EXECUTIONS' }
+  | { type: 'CLEAR_ALL_CUSTOM_DEFINITIONS' };
