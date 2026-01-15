@@ -1,10 +1,10 @@
 import { Card, Empty, Steps, Typography, Result, Divider } from 'antd';
-import { useMemo } from 'react';
+import { useMemo, useEffect, useCallback } from 'react';
 import { useWorkflow } from '../../context/WorkflowContext';
 import { FormStep } from './FormStep';
 import { ApprovalStep } from './ApprovalStep';
 import { ReferenceStep } from './ReferenceStep';
-import type { ProcessInstance, ProcessDefinition } from '../../types';
+import type { ProcessInstance, ProcessDefinition, StepSnapshot } from '../../types';
 
 const { Title, Text } = Typography;
 
@@ -34,15 +34,93 @@ interface SiblingInfo {
 }
 
 export function ExecutionDetail() {
-  const { state, getDefinitionById, getExecutionById, updateExecution } = useWorkflow();
+  const { state, getDefinitionById, getExecutionById, updateExecution, getStepSnapshot } = useWorkflow();
+
+  // ステップで使用される全ての定義を再帰的に収集
+  const collectDefinitionsForStep = useCallback((
+    children: ProcessInstance[],
+    targetFlatIndex: number,
+    currentFlatIndex: number = 0
+  ): { definitions: Record<string, ProcessDefinition>; found: boolean; nextIndex: number } => {
+    const definitions: Record<string, ProcessDefinition> = {};
+    let idx = currentFlatIndex;
+
+    for (const child of children) {
+      const childDef = getDefinitionById(child.definitionId);
+      if (!childDef) {
+        continue;
+      }
+
+      if (childDef.type === 'composite' && childDef.children && childDef.children.length > 0) {
+        // 複合プロセスの場合は再帰
+        const result = collectDefinitionsForStep(childDef.children, targetFlatIndex, idx);
+        if (result.found) {
+          // 見つかった場合、この複合プロセスの定義も含める
+          definitions[childDef.id] = childDef;
+          Object.assign(definitions, result.definitions);
+          return { definitions, found: true, nextIndex: result.nextIndex };
+        }
+        idx = result.nextIndex;
+      } else {
+        // 実行可能なステップ
+        if (idx === targetFlatIndex) {
+          definitions[childDef.id] = childDef;
+          return { definitions, found: true, nextIndex: idx + 1 };
+        }
+        idx++;
+      }
+    }
+
+    return { definitions, found: false, nextIndex: idx };
+  }, [getDefinitionById]);
+
+  // スナップショットを作成
+  const createSnapshotForStep = useCallback((
+    stepIndex: number,
+    rootDefinition: ProcessDefinition
+  ): StepSnapshot | null => {
+    if (!rootDefinition.children) return null;
+
+    const result = collectDefinitionsForStep(rootDefinition.children, stepIndex);
+    if (!result.found) return null;
+
+    // ルート定義も含める
+    result.definitions[rootDefinition.id] = rootDefinition;
+
+    return {
+      stepIndex,
+      definitions: result.definitions,
+      startedAt: new Date(),
+    };
+  }, [collectDefinitionsForStep]);
+
+  // スナップショットから定義を取得、なければ最新の定義を返す
+  const getDefinitionWithSnapshot = useCallback((
+    definitionId: string,
+    stepIndex: number,
+    currentExecution: typeof execution
+  ): ProcessDefinition | undefined => {
+    if (currentExecution) {
+      const snapshot = currentExecution.stepSnapshots?.find((s) => s.stepIndex === stepIndex);
+      if (snapshot && snapshot.definitions[definitionId]) {
+        return snapshot.definitions[definitionId];
+      }
+    }
+    return getDefinitionById(definitionId);
+  }, [getDefinitionById]);
 
   // 再帰的にステップを展開し、階層情報を付与する
-  const flattenWithHierarchy = useMemo(() => {
+  const flattenWithHierarchy = useCallback((
+    children: ProcessInstance[],
+    currentExecution: typeof execution,
+    currentStepIndex: number
+  ): FlattenedStep[] => {
     // まずフラット化して各ステップのflatIndex範囲を計算
-    const countFlatSteps = (children: ProcessInstance[]): number => {
+    const countFlatSteps = (childList: ProcessInstance[]): number => {
       let count = 0;
-      for (const child of children) {
-        const childDef = getDefinitionById(child.definitionId);
+      for (const child of childList) {
+        // スナップショットがあれば使用、なければ最新の定義
+        const childDef = getDefinitionWithSnapshot(child.definitionId, currentStepIndex, currentExecution);
         if (!childDef) continue;
         if (childDef.type === 'composite' && childDef.children && childDef.children.length > 0) {
           count += countFlatSteps(childDef.children);
@@ -54,7 +132,7 @@ export function ExecutionDetail() {
     };
 
     const flatten = (
-      children: ProcessInstance[],
+      childList: ProcessInstance[],
       parentPath: string[],
       parentHierarchyPath: HierarchyPathItem[],
       flatIndexOffset: number
@@ -64,9 +142,9 @@ export function ExecutionDetail() {
       // まず兄弟情報を構築
       const siblings: SiblingInfo[] = [];
       let currentFlatIndex = flatIndexOffset;
-      for (let i = 0; i < children.length; i++) {
-        const child = children[i];
-        const childDef = getDefinitionById(child.definitionId);
+      for (let i = 0; i < childList.length; i++) {
+        const child = childList[i];
+        const childDef = getDefinitionWithSnapshot(child.definitionId, currentStepIndex, currentExecution);
         if (!childDef) continue;
 
         const stepCount = childDef.type === 'composite' && childDef.children
@@ -84,9 +162,9 @@ export function ExecutionDetail() {
       }
 
       // 各子要素を処理
-      for (let i = 0; i < children.length; i++) {
-        const child = children[i];
-        const childDef = getDefinitionById(child.definitionId);
+      for (let i = 0; i < childList.length; i++) {
+        const child = childList[i];
+        const childDef = getDefinitionWithSnapshot(child.definitionId, currentStepIndex, currentExecution);
         if (!childDef) continue;
 
         const siblingInfo = siblings[i];
@@ -121,8 +199,43 @@ export function ExecutionDetail() {
       return result;
     };
 
-    return (children: ProcessInstance[]) => flatten(children, [], [], 0);
-  }, [getDefinitionById]);
+    return flatten(children, [], [], 0);
+  }, [getDefinitionWithSnapshot]);
+
+  const execution = state.selectedExecutionId
+    ? getExecutionById(state.selectedExecutionId)
+    : null;
+
+  const definition = execution
+    ? getDefinitionById(execution.definitionId)
+    : null;
+
+  // 入れ子を展開したフラットなステップリスト
+  const flatSteps = useMemo(() => {
+    if (!definition?.children || !execution) return [];
+    return flattenWithHierarchy(definition.children, execution, execution.currentStepIndex);
+  }, [definition, execution, flattenWithHierarchy]);
+
+  // 現在のステップにスナップショットがなければ作成
+  useEffect(() => {
+    if (!execution || !definition || execution.status === 'completed' || execution.status === 'rejected') {
+      return;
+    }
+
+    const currentStepIndex = execution.currentStepIndex;
+    const existingSnapshot = getStepSnapshot(execution, currentStepIndex);
+
+    if (!existingSnapshot) {
+      const snapshot = createSnapshotForStep(currentStepIndex, definition);
+      if (snapshot) {
+        const updatedSnapshots = [...(execution.stepSnapshots || []), snapshot];
+        updateExecution({
+          ...execution,
+          stepSnapshots: updatedSnapshots,
+        });
+      }
+    }
+  }, [execution, definition, getStepSnapshot, createSnapshotForStep, updateExecution]);
 
   if (!state.selectedExecutionId) {
     return (
@@ -132,8 +245,6 @@ export function ExecutionDetail() {
     );
   }
 
-  const execution = getExecutionById(state.selectedExecutionId);
-
   if (!execution) {
     return (
       <Card>
@@ -142,8 +253,6 @@ export function ExecutionDetail() {
     );
   }
 
-  const definition = getDefinitionById(execution.definitionId);
-
   if (!definition || !definition.children) {
     return (
       <Card>
@@ -151,9 +260,6 @@ export function ExecutionDetail() {
       </Card>
     );
   }
-
-  // 入れ子を展開したフラットなステップリスト
-  const flatSteps = flattenWithHierarchy(definition.children);
 
   if (flatSteps.length === 0) {
     return (

@@ -54,6 +54,14 @@ export interface StepHistory {
   data?: Record<string, unknown>;
 }
 
+// ステップごとの定義スナップショット
+export interface StepSnapshot {
+  stepIndex: number;
+  // このステップで使用される全ての定義のスナップショット（definitionIdをキーに）
+  definitions: Record<string, ProcessDefinition>;
+  startedAt: Date;
+}
+
 // プロセス実行インスタンス
 export interface ProcessExecution {
   id: string;
@@ -63,6 +71,8 @@ export interface ProcessExecution {
   status: ExecutionStatus;
   data: Record<string, unknown>;
   history: StepHistory[];
+  // 実行開始済みステップの定義スナップショット
+  stepSnapshots?: StepSnapshot[];
 }
 
 // アプリケーションのモード

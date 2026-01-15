@@ -5,6 +5,7 @@ import type {
   AppMode,
   ProcessDefinition,
   ProcessExecution,
+  StepSnapshot,
 } from '../types';
 
 const STORAGE_KEY = 'workflow-app-state';
@@ -190,6 +191,9 @@ interface WorkflowContextType {
   clearAllCustomDefinitions: () => void;
   getDefinitionById: (id: string) => ProcessDefinition | undefined;
   getExecutionById: (id: string) => ProcessExecution | undefined;
+  // スナップショット関連
+  getDefinitionForStep: (execution: ProcessExecution, stepIndex: number, definitionId: string) => ProcessDefinition | undefined;
+  getStepSnapshot: (execution: ProcessExecution, stepIndex: number) => StepSnapshot | undefined;
 }
 
 // Context作成
@@ -224,6 +228,18 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
     clearAllCustomDefinitions: () => dispatch({ type: 'CLEAR_ALL_CUSTOM_DEFINITIONS' }),
     getDefinitionById: (id) => state.definitions.find((def) => def.id === id),
     getExecutionById: (id) => state.executions.find((exec) => exec.id === id),
+    // スナップショットから定義を取得（なければ最新の定義を返す）
+    getDefinitionForStep: (execution, stepIndex, definitionId) => {
+      const snapshot = execution.stepSnapshots?.find((s) => s.stepIndex === stepIndex);
+      if (snapshot && snapshot.definitions[definitionId]) {
+        return snapshot.definitions[definitionId];
+      }
+      // スナップショットがなければ最新の定義を返す
+      return state.definitions.find((def) => def.id === definitionId);
+    },
+    getStepSnapshot: (execution, stepIndex) => {
+      return execution.stepSnapshots?.find((s) => s.stepIndex === stepIndex);
+    },
   };
 
   return (
