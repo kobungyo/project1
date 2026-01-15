@@ -1,4 +1,4 @@
-import { Card, Typography, Descriptions, Empty, Tabs, Tag, Input, Button, Space } from 'antd';
+import { Card, Typography, Descriptions, Empty, Tabs, Tag, Input, Button, Space, message } from 'antd';
 import { EditOutlined, CheckOutlined, CloseOutlined } from '@ant-design/icons';
 import { useState, useEffect } from 'react';
 import { useWorkflow } from '../../context/WorkflowContext';
@@ -27,8 +27,22 @@ function getProcessTypeName(type: string): string {
 export function ProcessDetail() {
   const { state, getDefinitionById, updateDefinition } = useWorkflow();
   const [isEditing, setIsEditing] = useState(false);
+  const [editCode, setEditCode] = useState('');
   const [editName, setEditName] = useState('');
   const [editDescription, setEditDescription] = useState('');
+
+  // プロセスコードのバリデーション（英数字のみ）
+  const isValidCode = (code: string): boolean => {
+    return code === '' || /^[a-zA-Z0-9]+$/.test(code);
+  };
+
+  // プロセスコードの重複チェック（空は許可、重複は不可）
+  const isCodeDuplicate = (code: string, excludeId?: string): boolean => {
+    if (!code.trim()) return false; // 空は重複とみなさない
+    return state.definitions.some(
+      (def) => def.code === code.trim() && def.id !== excludeId
+    );
+  };
 
   const definition = state.selectedDefinitionId
     ? getDefinitionById(state.selectedDefinitionId)
@@ -38,6 +52,7 @@ export function ProcessDetail() {
   useEffect(() => {
     setIsEditing(false);
     if (definition) {
+      setEditCode(definition.code || '');
       setEditName(definition.name);
       setEditDescription(definition.description || '');
     }
@@ -65,14 +80,24 @@ export function ProcessDetail() {
     : null;
 
   const handleStartEdit = () => {
+    setEditCode(definition.code || '');
     setEditName(definition.name);
     setEditDescription(definition.description || '');
     setIsEditing(true);
   };
 
   const handleSave = () => {
+    if (editCode && !isValidCode(editCode)) {
+      message.error('プロセスコードは英数字のみ使用できます');
+      return;
+    }
+    if (isCodeDuplicate(editCode, definition.id)) {
+      message.error('このプロセスコードは既に使用されています');
+      return;
+    }
     updateDefinition({
       ...definition,
+      code: editCode.trim() || undefined,
       name: editName.trim() || definition.name,
       description: editDescription.trim(),
     });
@@ -80,6 +105,7 @@ export function ProcessDetail() {
   };
 
   const handleCancel = () => {
+    setEditCode(definition.code || '');
     setEditName(definition.name);
     setEditDescription(definition.description || '');
     setIsEditing(false);
@@ -91,13 +117,22 @@ export function ProcessDetail() {
       return (
         <div style={{ marginBottom: '16px' }}>
           <Space direction="vertical" style={{ width: '100%' }}>
-            <Input
-              value={editName}
-              onChange={(e) => setEditName(e.target.value)}
-              placeholder="プロセス名"
-              size="large"
-              style={{ fontWeight: 'bold' }}
-            />
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <Input
+                value={editCode}
+                onChange={(e) => setEditCode(e.target.value)}
+                placeholder="プロセスコード（英数字）"
+                style={{ width: '150px' }}
+                status={editCode && !isValidCode(editCode) ? 'error' : undefined}
+              />
+              <Input
+                value={editName}
+                onChange={(e) => setEditName(e.target.value)}
+                placeholder="プロセス名"
+                size="large"
+                style={{ fontWeight: 'bold', flex: 1 }}
+              />
+            </div>
             <TextArea
               value={editDescription}
               onChange={(e) => setEditDescription(e.target.value)}
@@ -105,7 +140,12 @@ export function ProcessDetail() {
               rows={2}
             />
             <Space>
-              <Button type="primary" icon={<CheckOutlined />} onClick={handleSave}>
+              <Button
+                type="primary"
+                icon={<CheckOutlined />}
+                onClick={handleSave}
+                disabled={editCode !== '' && !isValidCode(editCode)}
+              >
                 保存
               </Button>
               <Button icon={<CloseOutlined />} onClick={handleCancel}>
@@ -120,6 +160,11 @@ export function ProcessDetail() {
     return (
       <div style={{ marginBottom: '16px' }}>
         <Title level={4} style={{ marginBottom: '8px' }}>
+          {definition.code && (
+            <Text code style={{ marginRight: '8px', fontSize: '14px' }}>
+              {definition.code}
+            </Text>
+          )}
           {definition.name}
           {tag}
           <Button

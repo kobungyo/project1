@@ -17,6 +17,7 @@ export interface FormField {
 // プロセス定義（テンプレート）
 export interface ProcessDefinition {
   id: string;
+  code?: string; // プロセスコード（英数字のみ）
   name: string;
   type: ProcessType;
   description?: string;

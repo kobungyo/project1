@@ -79,6 +79,7 @@ export function ProcessSelector({
     const searchLower = searchText.toLowerCase();
     return (
       def.name.toLowerCase().includes(searchLower) ||
+      (def.code?.toLowerCase().includes(searchLower) ?? false) ||
       (def.description?.toLowerCase().includes(searchLower) ?? false) ||
       getTypeLabel(def.type).includes(searchText)
     );
@@ -145,6 +146,22 @@ export function ProcessSelector({
           }
         }}
       >
+        {/* プロセスコード（1列目） */}
+        <Text
+          code
+          style={{
+            width: '80px',
+            flexShrink: 0,
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+            fontSize: '11px',
+            backgroundColor: def.code ? '#f5f5f5' : 'transparent',
+          }}
+        >
+          {def.code || '-'}
+        </Text>
+
         {/* アイコン */}
         <span style={{ flexShrink: 0 }}>{getProcessIcon(def.type)}</span>
 
